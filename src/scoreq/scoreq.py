@@ -5,7 +5,6 @@ import numpy as np
 import torchaudio
 import os
 from urllib.request import urlretrieve
-#from scoreq import download_models
 
 class Scoreq():
     """
@@ -47,9 +46,16 @@ class Scoreq():
         if not os.path.isdir('./pt-models'):
             print('Creating pt-models directory')
             os.makedirs('./pt-models')
+
+        # Download wav2vec 2.0
+        url_w2v = "https://dl.fbaipublicfiles.com/fairseq/wav2vec/wav2vec_small.pt"
+        CHECKPOINT_PATH = './pt-models/wav2vec_small.pt'
+        if not os.path.isfile(CHECKPOINT_PATH):
+            print('Downloading wav2vec 2.0')
+            urlretrieve(url_w2v, CHECKPOINT_PATH)
+            print('Completed')
         
         # w2v BASE parameters
-        CHECKPOINT_PATH = './pt-models/wav2vec_small.pt'
         W2V_OUT_DIM = 768
         EMB_DIM = 256
 
@@ -71,22 +77,39 @@ class Scoreq():
         if data_domain == 'natural':
             if mode == 'nr':
                 MODEL_PATH = './pt-models/adapt_nr_telephone.pt'
-                url_scoreq = 'https://zenodo.org/api/records/13860326/draft/files/adapt_nr_telephone.pt/content'
-                model_path = './pt-models/adapt_nr_telephone.pt'
-                if not os.path.isfile(model_path):
-                    print('Downloading PyTorch Weights')
+                url_scoreq = 'https://zenodo.org/records/13860326/files/adapt_nr_telephone.pt'
+                if not os.path.isfile(MODEL_PATH):
+                    print('Downloading PyTorch weights from Zenodo')
                     print('SCOREQ | Mode: No-Reference | Data: Natural speech')
-                    urlretrieve(url_scoreq, model_path)
+                    urlretrieve(url_scoreq, MODEL_PATH)
                     print('Download completed')
             elif mode == 'ref':
                 MODEL_PATH = './pt-models/fixed_nmr_telephone.pt'
+                url_scoreq = 'https://zenodo.org/records/13860326/files/fixed_nmr_telephone.pt'
+                if not os.path.isfile(MODEL_PATH):
+                    print('Downloading PyTorch weights from Zenodo')
+                    print('SCOREQ | Mode: Full-Reference/NMR | Data: Natural speech')
+                    urlretrieve(url_scoreq, MODEL_PATH)
+                    print('Download completed')
             else:
                 raise Exception('Mode must be either "nr" for no-reference or "ref" for full-reference and non-matching reference.')
         elif data_domain == 'synthetic':
             if mode == 'nr':
                 MODEL_PATH = './pt-models/adapt_nr_synthetic.pt'
+                url_scoreq = 'https://zenodo.org/records/13860326/files/adapt_nr_synthetic.pt'
+                if not os.path.isfile(MODEL_PATH):
+                    print('Downloading PyTorch weights from Zenodo')
+                    print('SCOREQ | Mode: No-Reference | Data: Synthetic speech')
+                    urlretrieve(url_scoreq, MODEL_PATH)
+                    print('Download completed')
             elif mode == 'ref':
                 MODEL_PATH = './pt-models/fixed_nmr_synthetic.pt'
+                url_scoreq = 'https://zenodo.org/records/13860326/files/fixed_nmr_synthetic.pt'
+                if not os.path.isfile(MODEL_PATH):
+                    print('Downloading PyTorch weights from Zenodo')
+                    print('SCOREQ | Mode: Full-reference/NMR | Data: Synthetic speech')
+                    urlretrieve(url_scoreq, MODEL_PATH)
+                    print('Download completed')
             else:
                 raise Exception('Mode must be either "nr" for no-reference or "ref" for full-reference and non-matching reference.')
         else:
@@ -110,7 +133,6 @@ class Scoreq():
         Returns:
             The predicted quality score (MOS (1-5) in 'nr' mode, euclidean distance w.r.t to ref_path in 'ref' mode).
         """
-
 
         # Check invalid input
         if test_path is None:
@@ -255,6 +277,7 @@ class TripletModel(nn.Module):
         # Choose if you want to keep projection head, remove for NR mode. Const model shows better performance in ODM without phead.
         if phead:
             x = self.embedding_layer(x)
+        x = torch.nn.functional.normalize(x, dim=1)
         return x
 
 # ******** MOS PREDICTOR **********
