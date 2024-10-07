@@ -1,0 +1,12 @@
+pt-models*
+.vscode*
+__pycache__*
+**/__pycache__/
+dist*
+pyproject.toml
+requirements.txt
+*.pyc
+*.out
+*.sh
+*.th
+test_package/
