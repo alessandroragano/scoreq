@@ -75,7 +75,8 @@ Full-reference mode is expected to be used only for natural speech, where the cl
 SCOREQ learns a distance and it expects clean speech as non-matching reference. 
 The model has not been evaluated for other non-matching references.
 
-## Paper (available soon)
+## Paper
+Check our paper [here](https://github.com/alessandroragano/scoreq/blob/main/SCOREQ_NeurIPS24.pdf)
 
 The SCOREQ code is licensed under MIT license. Dependencies of the project are available under separate license terms.
 
