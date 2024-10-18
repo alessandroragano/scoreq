@@ -4,13 +4,32 @@ SCOREQ is a framework for speech quality assessment based on pre-training the en
 
 This repo provides four speech quality metrics trained with the SCOREQ framework.
 
-| Domain |  Usage Mode | Prediction
-|---|---|---|
-| Natural speech   | No-reference | Mean Opinion Score
-| Natural speech   | Non-matching reference, full-reference | Euclidean distance clean speech
-| Synthetic speech | No-reference | Mean Opinion Score
-| Synthetic speech | Non-matching reference | Euclidean distance clean speech
+| Domain | Train Set | Usage Mode | Prediction
+|---|---|---|---|
+| Natural speech   | NISQA TRAIN SIM |No-reference | Mean Opinion Score
+| Natural speech   | NISQA TRAIN SIM |Non-matching reference, full-reference | Euclidean distance clean speech
+| Synthetic speech | VoiceMOS 22 Train Set |No-reference | Mean Opinion Score
+| Synthetic speech | VoiceMOS 22 Train Set | Non-matching reference | Euclidean distance clean speech
 
+## Performance - Pearson Correlation
+<!---
+![pc](https://raw.githubusercontent.com/alessandroragano/scoreq/main/figs/results.png)
+-->
+
+| Dataset           |   Domain   | NISQA (NISQA TRAIN SIM) | NR-PESQ | NR-SI SDR | NORESQA-M | NR-SCOREQ Natural| NR-SCOREQ Synthetic |
+|-------------------|------|-------|---------|-----------|-----------|------------------| --------------------|
+| NISQA TEST FOR    |  Online Conferencing Simulated (codecs, background noise, packet loss, etc. )    | 0.91   | 0.79      | 0.74   |   0.68    |    **0.97**      |   0.82
+| NISQA TEST P501   |  Online Conferencing Simulated (codecs, background noise, packet loss, etc. )   | 0.94   | 0.88      | 0.81   |   0.70    |    **0.96**      |   0.86
+| DNS Squim         |  Speech Enhancement, Background Noise    | //     | 0.96      | 0.99   |     //    |       //         |   //
+| VoiceMOS Test 1  |   Speech Synthesis    | 0.54   | 0.71      | 0.67   |   0.85    |       0.86       |  **0.90**
+| VoiceMOS Test 2  |   Speech Synthesis   |  0.64   | 0.49      | 0.55   |   0.91    |      0.82        |  **0.98**
+| NOIZEUS          |    Speech Enhancement, Background Noise |  0.85   | 0.75      | 0.70   |   0.15    |    **0.91**      |   0.59
+| NISQA TEST LT     |   Online Conferencing Live   | 0.84   | 0.66      | 0.56   | 0.60      |    **0.86**      |   0.81
+| P23 EXP3          |   Packet Loss, Codecs   | 0.82   | 0.77      | 0.17   | 0.71      |    **0.94**      |   0.88
+| TCD VOIP         |    VoIP Degradations  |  0.76   | 0.76      | 0.76   | 0.61      |    0.85      |  **0.87**
+| TENCENT           |   Online Conferencing Simulated (codecs, background noise, packet loss, etc. )  | 0.78   | 0.78      | 0.77   | 0.57      |    **0.86**      |   0.78
+| P23 EXP1          |   Codecs   | 0.76   | 0.70      | 0.82   | 0.40      |    **0.96**      |   0.92
+| TENCENT-Rev              |   Real-World Reverberation   | 0.40   | 0.36      | 0.32   | 0.36      |    **0.79**      |   0.43
 
 
 ## Installation
