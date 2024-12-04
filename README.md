@@ -81,20 +81,26 @@ ref_scoreq = scoreq.Scoreq(data_domain='synthetic', mode='ref')
 pred_distance = ref_scoreq.predict(test_path='./data/opus.wav', ref_path='./data/ref.wav')
 ```
 
-## Other
-We provide the best model for each domain-mode pair. 
+## Correct usage
 
-Use ```mode=ref``` for both non-matching reference or full-reference. This is affected by the clean speech used as input.
+### Reference Mode
 
-If you pass the clean counterpart, the metric will run in full-reference mode. 
-If you pass any clean speech, the metric will run in non-matching reference mode.
+Use `mode=ref` for both non-matching reference and full-reference scenarios, depending on the clean speech input:
 
-Full-reference mode is expected to be used only for natural speech, where the clean copy is available.
+- The metric operates in **full-reference mode** when provided with the clean counterpart of the audio.
+- It operates in **non-matching reference mode** if any random clean speech is used as input.
 
-SCOREQ learns a distance and it expects clean speech as non-matching reference. 
-The model has not been evaluated for other non-matching references.
+Full-reference mode is expected for applications related to the natural speech domain where the clean counterpart is typically available e.g., speech codecs. 
+SCOREQ learns a distance metric and expects clean speech as the non-matching reference. Note that the model has not been evaluated with other types of non-matching references.
 
-## Paper - NeurIPS 2024, To Appear
+### Input Length
+
+SCOREQ accepts inputs of any length. However, it was trained and evaluated on segments up to 15 seconds. We recommend trimming your audio to 10–15 seconds to avoid running out of memory with longer recordings. This duration is sufficient for accurate audio quality predictions.
+
+### Sampling rate
+SCOREQ automatically resamples input files to 16 kHz, the selected sampling rate for training. The model was evaluated on four test sets in full-band mode (48 kHz), yielding promising results. While we encourage experimenting with SCOREQ at higher sampling rates, any conclusions drawn from using rates above 16 kHz should be validated through listening tests.
+
+## Paper - NeurIPS 2024
 Check our paper [here](https://arxiv.org/pdf/2410.06675)
 ```
 @article{ragano2024scoreq,
