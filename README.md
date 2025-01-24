@@ -110,6 +110,7 @@ Check our paper [here](https://arxiv.org/pdf/2410.06675)
   year={2024}
 }
 ```
+[![DOI](https://zenodo.org/badge/868888288.svg)](https://doi.org/10.5281/zenodo.14735580)
 
 The SCOREQ code is licensed under MIT license. Dependencies of the project are available under separate license terms.
 
