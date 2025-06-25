@@ -30,18 +30,35 @@ Performance is calculated by averaging per condition where available.
 
 
 ## Installation
-SCOREQ is hosted on PyPi. It can be installed in your Python environment with the following command
-```
+SCOREQ is hosted on PyPi and uses ONNX Runtime inference by default. This removes the need for heavy dependencies like `fairseq` for standard use.
+
+Choose the installation method that best suits your needs:
+
+### Standard Installation (CPU)
+
+For most users. This provides a CPU-based installation for inference.
+```bash
 pip install scoreq
 ```
+### Fast Inference (GPU)
+For users with a compatible NVIDIA GPU and CUDA setup, install the [gpu] extra for faster inference.
+```bash
+pip install scoreq[gpu]
+```
+### PyTorch/Fairseq version
+For users who wish to fine-tune models or work with the original PyTorch framework, install the [pytorch] extra. This will install fairseq, torch, and all other development dependencies.
+```bash
+pip install scoreq[pytorch]
+```
 
-The expected sampling rate is 16 kHz. The script automatically resamples audio with different sampling rates. 
-SCOREQ models accept variable input length.
 
 ### First run
 The PyTorch weights are hosted on Zenodo. The first run might be slower due to model download. 
 
 ## Using SCOREQ 
+The expected sampling rate is 16 kHz. The script automatically resamples audio with different sampling rates. 
+SCOREQ models accept variable input length.
+
 SCOREQ can be used in 2 modes and for 2 domains by setting the arguments ```data_domain``` and ```mode```.
 
 ### Using SCOREQ from the command line

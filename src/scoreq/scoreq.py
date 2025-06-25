@@ -1,315 +1,251 @@
-import fairseq
+import os
+import math
+from urllib.request import urlretrieve
+import numpy as np
 import torch
 import torch.nn as nn
-import numpy as np
+import torch.nn.functional as F
 import torchaudio
-import os
-from urllib.request import urlretrieve
+from tqdm import tqdm
 
-class Scoreq():
-    """
-    Main class for handling the SCOREQ audio quality assessment model.
+# --- Helper Functions & Classes ---
 
-    This class loads the pre-trained SCOREQ model, processes audio files, and makes predictions in both
-    no-reference (NR) and reference-based (FR/NMR) modes. It supports both natural and synthetic speech
-    data domains.
-    """
-    def __init__(self, device=None, data_domain='natural', mode='nr'):
-        """
-        Initializes the Scoreq object.
+# The wav2vec 2.0 model's CNN feature extractor has a total stride of 320
+PADDING_MULTIPLE = 320
 
-        Args:
-            device: Device to run the model on ('cuda' or 'cpu'). If None, automatically detects GPU availability.
-            data_domain: Domain of the audio data ('natural' or 'synthetic').
-            mode: Mode of operation ('nr' for no-reference or 'ref' for either full-reference or non-matching-reference modes).
-        """
-        
-        # Store variables
-        self.data_domain = data_domain
-        self.mode = mode
-        
-        # *** DEVICE SETTINGS ***
-        # Automatically set based on GPU detection
-        if torch.cuda.is_available():
-            self.DEVICE = 'cuda'
-        else:
-            self.DEVICE = 'cpu'
-        
-        # Overwrite user choice
-        if device is not None:
-            self.DEVICE = device
-        
-        print(f'SCOREQ running on: {self.DEVICE}')
-        
-        # *** LOAD MODEL ***
-        # *** Pytorch models directory ****
-        if not os.path.isdir('./pt-models'):
-            print('Creating pt-models directory')
-            os.makedirs('./pt-models')
+def dynamic_pad(x, multiple=PADDING_MULTIPLE, dim=-1, value=0):
+    """Pads the input tensor to be a multiple of PADDING_MULTIPLE."""
+    tsz = x.size(dim)
+    required_len = math.ceil(tsz / multiple) * multiple
+    remainder = required_len - tsz
+    pad_offset = (0,) * (-1 - dim) * 2
+    return F.pad(x, pad_offset + (0, remainder), value=value)
 
-        # Download wav2vec 2.0
-        url_w2v = "https://dl.fbaipublicfiles.com/fairseq/wav2vec/wav2vec_small.pt"
-        CHECKPOINT_PATH = './pt-models/wav2vec_small.pt'
-        if not os.path.isfile(CHECKPOINT_PATH):
-            print('Downloading wav2vec 2.0')
-            urlretrieve(url_w2v, CHECKPOINT_PATH)
-            print('Completed')
-        
-        # w2v BASE parameters
-        W2V_OUT_DIM = 768
-        EMB_DIM = 256
+class TqdmUpTo(tqdm):
+    """Provides `update_to(n)` which uses `tqdm.update(n - self.n)`."""
+    def update_to(self, b=1, bsize=1, tsize=None):
+        if tsize is not None:
+            self.total = tsize
+        self.update(b * bsize - self.n)
 
-        # Load w2v BASE
-        w2v_model, _, _ = fairseq.checkpoint_utils.load_model_ensemble_and_task([CHECKPOINT_PATH])
-        ssl_model = w2v_model[0] 
-        ssl_model.remove_pretraining_modules()
-    
-        # Create SCOREQ model
-        pt_model = TripletModel(ssl_model, W2V_OUT_DIM, EMB_DIM)
-        
-        # Add mos projection layer for no-reference mode
-        if mode == 'nr':
-            model = MosPredictor(pt_model, emb_dim=W2V_OUT_DIM)
-        elif mode == 'ref':
-            model = pt_model
-
-        # Load weights
-        if data_domain == 'natural':
-            if mode == 'nr':
-                MODEL_PATH = './pt-models/adapt_nr_telephone.pt'
-                url_scoreq = 'https://zenodo.org/records/13860326/files/adapt_nr_telephone.pt'
-                if not os.path.isfile(MODEL_PATH):
-                    print('Downloading PyTorch weights from Zenodo')
-                    print('SCOREQ | Mode: No-Reference | Data: Natural speech')
-                    urlretrieve(url_scoreq, MODEL_PATH)
-                    print('Download completed')
-            elif mode == 'ref':
-                MODEL_PATH = './pt-models/fixed_nmr_telephone.pt'
-                url_scoreq = 'https://zenodo.org/records/13860326/files/fixed_nmr_telephone.pt'
-                if not os.path.isfile(MODEL_PATH):
-                    print('Downloading PyTorch weights from Zenodo')
-                    print('SCOREQ | Mode: Full-Reference/NMR | Data: Natural speech')
-                    urlretrieve(url_scoreq, MODEL_PATH)
-                    print('Download completed')
-            else:
-                raise Exception('Mode must be either "nr" for no-reference or "ref" for full-reference and non-matching reference.')
-        elif data_domain == 'synthetic':
-            if mode == 'nr':
-                MODEL_PATH = './pt-models/adapt_nr_synthetic.pt'
-                url_scoreq = 'https://zenodo.org/records/13860326/files/adapt_nr_synthetic.pt'
-                if not os.path.isfile(MODEL_PATH):
-                    print('Downloading PyTorch weights from Zenodo')
-                    print('SCOREQ | Mode: No-Reference | Data: Synthetic speech')
-                    urlretrieve(url_scoreq, MODEL_PATH)
-                    print('Download completed')
-            elif mode == 'ref':
-                MODEL_PATH = './pt-models/fixed_nmr_synthetic.pt'
-                url_scoreq = 'https://zenodo.org/records/13860326/files/fixed_nmr_synthetic.pt'
-                if not os.path.isfile(MODEL_PATH):
-                    print('Downloading PyTorch weights from Zenodo')
-                    print('SCOREQ | Mode: Full-reference/NMR | Data: Synthetic speech')
-                    urlretrieve(url_scoreq, MODEL_PATH)
-                    print('Download completed')
-            else:
-                raise Exception('Mode must be either "nr" for no-reference or "ref" for full-reference and non-matching reference.')
-        else:
-            raise Exception('Invalid data domain, you must select either "natural" or "synthetic".')
-
-        model.load_state_dict(torch.load(MODEL_PATH, map_location=self.DEVICE))  
-        self.model = model
-        self.model.to(self.DEVICE)
-        self.model.eval()
-
-
-    def predict(self, test_path, ref_path=None):
-        """"
-        Makes predictions on audio files.
-
-        Args:
-            test_path: Path to the test audio file.
-            ref_path: Path to the reference audio file (required in 'ref' mode). If ref_path is the clean counterpart the model will work in full-reference mode. If it's any clean speech, it will work in non-matching-reference mode.
-            results_path: Optional path to save the results.
-
-        Returns:
-            The predicted quality score (MOS (1-5) in 'nr' mode, euclidean distance w.r.t to ref_path in 'ref' mode).
-        """
-
-        # Check invalid input
-        if test_path is None:
-            raise Exception('test_path not specified, you need to pass a valid path to an audio file')
-        
-        if self.mode == 'ref':
-            if ref_path is None:
-                raise Exception('ref_path must be a wav file in ref mode, found None')
-
-        # *** CHOOSE MODE ***        
-        # No-Reference (NR) mode
-        if self.mode == 'nr':
-            pred = np.round(self.nr_scoreq(test_path), 4)
-            print(f'SCOREQ | No-Reference Mode | Domain {self.data_domain} | {test_path}: {pred}')
-
-        elif self.mode == 'ref':
-            # Full-reference (FR) mode or Non-Matching Reference (NMR) mode depending on which reference audio is used
-            pred = self.ref_scoreq(test_path, ref_path)      
-            print(f'SCOREQ | Fr/Nmr-Reference Mode | Domain {self.data_domain} | Ref-> {ref_path}, Test-> {test_path}: {pred}')
-        
-        else:
-            raise Exception('Selected mode is not valid, choose between nr and ref')
-        
-        return pred
-
-    def nr_scoreq(self, test_path):
-        """
-        Performs no-reference quality prediction.
-
-        Args:
-            test_path: Path to the test audio file.
-
-        Returns:
-            The predicted MOS.
-        """
-
-        wave = self.load_processing(test_path).to(self.DEVICE)
-        with torch.no_grad():
-            pred_mos = self.model(wave).item()
-        
-        return pred_mos
-
-    def ref_scoreq(self, test_path, ref_path):
-        """
-        Performs reference-based quality prediction.
-
-        Args:
-            test_path: Path to the test audio file.
-            ref_path: Path to the reference audio file. It can either be the clean counterpart (Full-reference) or any clean speech (Non-matching reference).
-            phead: Choose whether you want to use linear projection head for predictions.
-
-        Returns:
-            The euclidean distance between the embeddings of the test and reference audio files.
-        """
-        test_wave = self.load_processing(test_path).to(self.DEVICE)
-        ref_wave = self.load_processing(ref_path).to(self.DEVICE)
-
-        # Get embeddings
-        with torch.no_grad():
-            test_emb = self.model(test_wave)
-            ref_emb = self.model(ref_wave)
-
-        # Get euclidean distance
-        scoreq_dist = torch.cdist(test_emb, ref_emb).item()
-        return scoreq_dist
-
-    # Load wave file
-    def load_processing(self, filepath, target_sr=16000, trim=False):
-        """
-        Loads and preprocesses an audio file.
-
-        Args:
-            filepath: Path to the audio file or a numpy array containing the audio data.
-            target_sr: Target sample rate (default: 16000 Hz).
-            trim: Whether to trim the audio to 10 seconds (default: False).
-
-        Returns:
-            The preprocessed audio waveform as a PyTorch tensor.
-        """
-
-        # Load waveform
-        if isinstance(filepath, np.ndarray):
-            filepath = filepath[0]
-        wave, sr = torchaudio.load(filepath)
-        
-        # Check number of channels (MONO)
-        if wave.shape[0] > 1:
-            wave = ((wave[0,:] + wave[1,:])/2).unsqueeze(0)
-        
-        # Check resampling (16 khz)
-        if sr != target_sr:
-            wave = torchaudio.transforms.Resample(sr,  target_sr)(wave)
-            sr = target_sr
-        
-        # Trim audio to 10 secs
-        if trim:
-            if wave.shape[1] > sr*10:
-                wave = wave[:, :sr*10]
-        
-        return wave
-
+# These PyTorch classes are needed for the use_onnx=False fallback
 class TripletModel(nn.Module):
-    """
-    Helper class defining the underlying neural network architecture for the SCOREQ model.
-    """
-    
     def __init__(self, ssl_model, ssl_out_dim, emb_dim=256):
-        """
-        Initializes the TripletModel.
-
-        Args:
-            ssl_model: The pre-trained self-supervised learning model (e.g., wav2vec).
-            ssl_out_dim: Output dimension of the SSL model.
-            emb_dim: Dimension of the final embedding (default: 256).
-        """
-
         super(TripletModel, self).__init__()
         self.ssl_model = ssl_model
         self.ssl_features = ssl_out_dim
-        self.embedding_layer = nn.Sequential(
-            nn.ReLU(),
-            nn.Linear(self.ssl_features, emb_dim)
-        )
+        self.embedding_layer = nn.Sequential(nn.ReLU(), nn.Linear(self.ssl_features, emb_dim))
     
     def forward(self, wav, phead=False):
-        """
-        Defines the forward pass of the model.
-
-        Args:
-            wav: Input audio waveform.
-            phead: Attach embedding layer for reference mode prei
-
-        Returns:
-            The normalized embedding of the input audio.
-        """
-
         wav = wav.squeeze(1)
         res = self.ssl_model(wav, mask=False, features_only=True)
         x = res['x']
         x = torch.mean(x, 1)
-
-        # Choose if you want to keep projection head, remove for NR mode. Const model shows better performance in ODM without phead.
         if phead:
             x = self.embedding_layer(x)
         x = torch.nn.functional.normalize(x, dim=1)
         return x
 
-# ******** MOS PREDICTOR **********
 class MosPredictor(nn.Module):
-    """
-    Helper class that adds a layer for predicting Mean Opinion Scores (MOS) in the no-reference mode.
-    """
-
     def __init__(self, pt_model, emb_dim=768):
-        """
-        Initializes the MosPredictor.
-
-        Args:
-            pt_model: The pre-trained triplet model.
-            emb_dim: Dimension of the embedding (default: 768).
-        """
         super(MosPredictor, self).__init__()
         self.pt_model = pt_model
         self.mos_layer = nn.Linear(emb_dim, 1)
         
     def forward(self, wav):
-        """
-        Defines the forward pass of the MOS predictor.
-
-        Args:
-            wav: Input audio waveform.
-
-        Returns:
-            The predicted MOS and the embedding.
-        """
         x = self.pt_model(wav, phead=False)
-        if len(x.shape) == 3:
-            x.squeeze_(2)
+        if len(x.shape) == 3: x.squeeze_(2)
         out = self.mos_layer(x)
         return out
+
+# --- Main Scoreq Class ---
+
+class Scoreq():
+    """
+    Main class for handling the SCOREQ audio quality assessment model.
+    Defaults to using high-performance ONNX models.
+    """
+    def __init__(self, data_domain='natural', mode='nr', use_onnx=True):
+        """
+        Initializes the Scoreq object.
+
+        Args:
+            data_domain (str): Domain of audio ('natural' or 'synthetic').
+            mode (str): Mode of operation ('nr' or 'ref').
+            use_onnx (bool): If True (default), uses fast ONNX models. If False, falls back to original PyTorch/fairseq method.
+        """
+        self.data_domain = data_domain
+        self.mode = mode
+        self.use_onnx = use_onnx
+        self.model = None
+        self.session = None
+        self.device = 'cpu'
+
+        if self.use_onnx:
+            self._init_onnx()
+        else:
+            self._init_pytorch()
+
+    def _init_onnx(self):
+        """Initializes the ONNX Runtime session."""
+        import onnxruntime as ort
+        
+        providers = ['CUDAExecutionProvider', 'CPUExecutionProvider'] if torch.cuda.is_available() else ['CPUExecutionProvider']
+        
+        domain_part = 'telephone' if self.data_domain == 'natural' else 'synthetic'
+        mode_part = 'adapt_nr' if self.mode == 'nr' else 'fixed_nmr'
+        onnx_filename = f"{mode_part}_{domain_part}.onnx"
+        
+        ZENODO_ONNX_URLS = {
+            'adapt_nr_telephone.onnx': 'https://zenodo.org/records/15739280/files/adapt_nr_telephone.onnx',
+            'fixed_nmr_telephone.onnx': 'https://zenodo.org/records/15739280/files/fixed_nmr_telephone.onnx',
+            'adapt_nr_synthetic.onnx': 'https://zenodo.org/records/15739280/files/adapt_nr_synthetic.onnx',
+            'fixed_nmr_synthetic.onnx': 'https://zenodo.org/records/15739280/files/fixed_nmr_synthetic.onnx',
+        }
+        
+        model_url = ZENODO_ONNX_URLS.get(onnx_filename)
+        if not model_url:
+            raise ValueError(f"Invalid model combination: domain='{self.data_domain}', mode='{self.mode}'")
+            
+        model_path = self._download_model(onnx_filename, model_url, cache_dir_name="onnx-models")
+        
+        self.session = ort.InferenceSession(model_path, providers=providers)
+        self.device = self.session.get_providers()[0]
+        print(f"SCOREQ (ONNX) initialized on provider: {self.device}")
+
+    def _init_pytorch(self):
+        """Initializes the original PyTorch/fairseq model."""
+        try:
+            import fairseq
+        except ImportError:
+            raise ImportError(
+                "PyTorch/fairseq mode requires 'fairseq' and 'torch'. "
+                "Please install them with: pip install scoreq[pytorch]"
+            )
+        
+        print("Initializing in PyTorch mode. `fairseq` and `torch` are required.")
+        if torch.cuda.is_available(): self.device = 'cuda'
+        else: self.device = 'cpu'
+
+        url_w2v = "https://dl.fbaipublicfiles.com/fairseq/wav2vec/wav2vec_small.pt"
+        CHECKPOINT_PATH = self._download_model("wav2vec_small.pt", url_w2v, "pt-models")
+        
+        # --- FINAL, ROBUST FIX ---
+        # Temporarily monkey-patch torch.load to default to weights_only=False.
+        # This is necessary because fairseq's internal loading function does not
+        # expose this argument, and it's required for newer PyTorch versions to
+        # load old checkpoints containing non-tensor data.
+        original_torch_load = torch.load
+        try:
+            def new_torch_load(*args, **kwargs):
+                kwargs['weights_only'] = False
+                return original_torch_load(*args, **kwargs)
+            
+            torch.load = new_torch_load
+            
+            # This call will now succeed because our patched torch.load is used internally
+            w2v_model, _, _ = fairseq.checkpoint_utils.load_model_ensemble_and_task([CHECKPOINT_PATH])
+        finally:
+            # CRITICAL: Always restore the original torch.load function
+            torch.load = original_torch_load
+        
+        ssl_model = w2v_model[0]
+        ssl_model.remove_pretraining_modules()
+
+        pt_model = TripletModel(ssl_model, ssl_out_dim=768, emb_dim=256)
+        
+        if self.mode == 'nr': model = MosPredictor(pt_model, emb_dim=768)
+        else: model = pt_model
+            
+        PT_URLS = {
+            ('natural', 'nr'): 'https://zenodo.org/records/13860326/files/adapt_nr_telephone.pt',
+            ('natural', 'ref'): 'https://zenodo.org/records/13860326/files/fixed_nmr_telephone.pt',
+            ('synthetic', 'nr'): 'https://zenodo.org/records/13860326/files/adapt_nr_synthetic.pt',
+            ('synthetic', 'ref'): 'https://zenodo.org/records/13860326/files/fixed_nmr_synthetic.pt',
+        }
+        model_key = (self.data_domain, self.mode)
+        model_url = PT_URLS.get(model_key)
+        if not model_url:
+            raise ValueError(f"Invalid model combination: domain='{self.data_domain}', mode='{self.mode}'")
+        
+        MODEL_PATH = self._download_model(os.path.basename(model_url), model_url, "pt-models")
+        # Also use weights_only=False for your own checkpoints, as it's good practice.
+        model.load_state_dict(torch.load(MODEL_PATH, map_location=self.device, weights_only=False))
+        
+        self.model = model
+        self.model.to(self.device)
+        self.model.eval()
+        print(f'SCOREQ (PyTorch) running on: {self.device}')
+
+    def _download_model(self, filename, url, cache_dir_name):
+        """Helper to download a model from a URL with a progress bar."""
+        cache_dir = os.path.join(os.path.expanduser("~"), ".cache", "scoreq", cache_dir_name)
+        os.makedirs(cache_dir, exist_ok=True)
+        model_path = os.path.join(cache_dir, filename)
+
+        if not os.path.exists(model_path):
+            print(f"Downloading {filename}...")
+            try:
+                with TqdmUpTo(unit='B', unit_scale=True, miniters=1, desc=filename) as t:
+                    urlretrieve(url, model_path, reporthook=t.update_to)
+                print("Download complete.")
+            except Exception as e:
+                print(f"Error downloading model: {e}")
+                if os.path.exists(model_path): os.remove(model_path)
+                raise e
+        
+        return model_path
+
+    def predict(self, test_path, ref_path=None):
+        """Makes predictions on audio files."""
+        if self.use_onnx:
+            return self._predict_onnx(test_path, ref_path)
+        else:
+            return self._predict_pytorch(test_path, ref_path)
+
+    def _predict_onnx(self, test_path, ref_path=None):
+        """Prediction using the ONNX model."""
+        input_name = self.session.get_inputs()[0].name
+        
+        test_wave_raw = self.load_processing(test_path)
+        test_wave_padded = dynamic_pad(test_wave_raw).numpy()
+        
+        if self.mode == 'nr':
+            score = self.session.run(None, {input_name: test_wave_padded})[0].item()
+        elif self.mode == 'ref':
+            if ref_path is None: raise ValueError("ref_path must be provided for reference mode.")
+            ref_wave_raw = self.load_processing(ref_path)
+            ref_wave_padded = dynamic_pad(ref_wave_raw).numpy()
+            
+            test_emb = self.session.run(None, {input_name: test_wave_padded})[0]
+            ref_emb = self.session.run(None, {input_name: ref_wave_padded})[0]
+            score = np.linalg.norm(test_emb - ref_emb).item()
+        else:
+            raise ValueError("Invalid mode specified.")
+            
+        return score
+
+    def _predict_pytorch(self, test_path, ref_path=None):
+        """Prediction using the original PyTorch model."""
+        test_wave_raw = self.load_processing(test_path)
+        test_wave_padded = dynamic_pad(test_wave_raw).to(self.device)
+        
+        with torch.no_grad():
+            if self.mode == 'nr':
+                score = self.model(test_wave_padded).item()
+            else:
+                if ref_path is None: raise ValueError("ref_path must be provided.")
+                ref_wave_raw = self.load_processing(ref_path)
+                ref_wave_padded = dynamic_pad(ref_wave_raw).to(self.device)
+                
+                test_emb = self.model(test_wave_padded)
+                ref_emb = self.model(ref_wave_padded)
+                score = torch.cdist(test_emb, ref_emb).item()
+        return score
+
+    def load_processing(self, filepath, target_sr=16000):
+        """Loads and preprocesses an audio file."""
+        wave, sr = torchaudio.load(filepath)
+        if wave.shape[0] > 1: wave = wave.mean(dim=0, keepdim=True)
+        if sr != target_sr: wave = torchaudio.transforms.Resample(sr, target_sr)(wave)
+        return wave

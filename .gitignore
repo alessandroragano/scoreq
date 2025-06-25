@@ -10,3 +10,4 @@ requirements.txt
 *.sh
 *.th
 test_package/
+*.onnx
