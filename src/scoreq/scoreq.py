@@ -8,7 +8,6 @@ import torch.nn.functional as F
 import torchaudio
 from tqdm import tqdm
 
-# --- Helper Functions & Classes ---
 
 # The wav2vec 2.0 model's CNN feature extractor has a total stride of 320
 PADDING_MULTIPLE = 320
@@ -28,7 +27,7 @@ class TqdmUpTo(tqdm):
             self.total = tsize
         self.update(b * bsize - self.n)
 
-# These PyTorch classes are needed for the use_onnx=False fallback
+# PyTorch classes needed for the use_onnx=False fallback
 class TripletModel(nn.Module):
     def __init__(self, ssl_model, ssl_out_dim, emb_dim=256):
         super(TripletModel, self).__init__()
@@ -58,7 +57,6 @@ class MosPredictor(nn.Module):
         out = self.mos_layer(x)
         return out
 
-# --- Main Scoreq Class ---
 
 class Scoreq():
     """
@@ -130,7 +128,6 @@ class Scoreq():
         url_w2v = "https://dl.fbaipublicfiles.com/fairseq/wav2vec/wav2vec_small.pt"
         CHECKPOINT_PATH = self._download_model("wav2vec_small.pt", url_w2v, "pt-models")
         
-        # --- FINAL, ROBUST FIX ---
         # Temporarily monkey-patch torch.load to default to weights_only=False.
         # This is necessary because fairseq's internal loading function does not
         # expose this argument, and it's required for newer PyTorch versions to
@@ -143,10 +140,8 @@ class Scoreq():
             
             torch.load = new_torch_load
             
-            # This call will now succeed because our patched torch.load is used internally
             w2v_model, _, _ = fairseq.checkpoint_utils.load_model_ensemble_and_task([CHECKPOINT_PATH])
         finally:
-            # CRITICAL: Always restore the original torch.load function
             torch.load = original_torch_load
         
         ssl_model = w2v_model[0]
@@ -169,7 +164,6 @@ class Scoreq():
             raise ValueError(f"Invalid model combination: domain='{self.data_domain}', mode='{self.mode}'")
         
         MODEL_PATH = self._download_model(os.path.basename(model_url), model_url, "pt-models")
-        # Also use weights_only=False for your own checkpoints, as it's good practice.
         model.load_state_dict(torch.load(MODEL_PATH, map_location=self.device, weights_only=False))
         
         self.model = model
