@@ -30,6 +30,9 @@ Performance is calculated by averaging per condition where available.
 
 
 ## Installation
+
+**Requirement:** Python 3.10 or newer.
+
 SCOREQ is hosted on PyPi and uses ONNX Runtime inference by default. This removes the need for heavy dependencies like `fairseq` for standard use.
 
 Choose the installation method that best suits your needs:

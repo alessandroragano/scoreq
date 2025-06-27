@@ -11,3 +11,5 @@ requirements.txt
 *.th
 test_package/
 *.onnx
+test_from_server.py
+scoreq.egg-info/
