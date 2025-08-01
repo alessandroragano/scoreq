@@ -1,6 +1,6 @@
 # SCOREQ: Speech Contrastive Regression for Quality Assessment
 
-SCOREQ is a framework for speech quality assessment based on pre-training the encoder with the SCOREQ loss.
+SCOREQ (pronounced score-Q) is a framework for speech quality assessment based on pre-training the encoder with the SCOREQ loss.
 
 This repo provides four speech quality metrics trained with the SCOREQ framework.
 
